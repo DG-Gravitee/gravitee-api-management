@@ -57,11 +57,14 @@ export class GvContactComponent implements OnInit {
       copy_to_sender: false,
     });
 
+    // TODO : replace with search bar  (-1 is forbidden soon)
     this.applicationService.getApplications({ size: -1 }).subscribe((response) => {
       this.applications = response.data.map((application) => {
         return { label: `${application.name} (${application.owner.display_name})`, value: application.id };
       });
     });
+
+    // TODO : replace with search bar  (-1 is forbidden soon)
     this.apiService.getApis({ size: -1 }).subscribe((response) => {
       this.apis = response.data.map((api) => {
         return { label: `${api.name} (${api.version})`, value: api.id };
