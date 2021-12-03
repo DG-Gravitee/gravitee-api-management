@@ -27,10 +27,7 @@ import io.gravitee.rest.api.model.api.header.ApiHeaderEntity;
 import io.gravitee.rest.api.model.common.Pageable;
 import io.gravitee.rest.api.model.common.Sortable;
 import io.gravitee.rest.api.service.exceptions.TechnicalManagementException;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author David BRASSELY (david.brassely at graviteesource.com)
@@ -58,9 +55,11 @@ public interface ApiService {
 
     Set<ApiEntity> findPublishedByUser(String userId);
 
-    List<String> findIdsByUser(String userId, ApiQuery apiQuery, boolean portal);
+    Set<String> findIdsByUser(String userId, ApiQuery apiQuery, boolean portal);
 
     Set<ApiEntity> findPublishedByUser(String userId, ApiQuery apiQuery);
+
+    LinkedHashSet<String> findPublishedIdsByUser(String userId, ApiQuery apiQuery);
 
     Set<ApiEntity> findByVisibility(Visibility visibility);
 
@@ -111,6 +110,8 @@ public interface ApiService {
     boolean exists(String apiId);
 
     ApiEntity importPathMappingsFromPage(ApiEntity apiEntity, String page);
+
+    Set<String> listCategories(Collection<String> apis);
 
     static UpdateApiEntity convert(ApiEntity apiEntity) {
         UpdateApiEntity updateApiEntity = new UpdateApiEntity();

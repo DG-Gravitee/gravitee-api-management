@@ -22,7 +22,6 @@ import io.gravitee.repository.management.api.search.ApiCriteria;
 import io.gravitee.repository.management.api.search.ApiFieldExclusionFilter;
 import io.gravitee.repository.management.api.search.Pageable;
 import io.gravitee.repository.management.model.Api;
-import io.gravitee.repository.management.model.ApiQualityRule;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -72,7 +71,17 @@ public class ApiRepositoryProxy extends AbstractProxy<ApiRepository> implements 
     }
 
     @Override
+    public List<String> searchIds(ApiCriteria... apiCriteria) {
+        return target.searchIds(apiCriteria);
+    }
+
+    @Override
     public Set<Api> findAll() throws TechnicalException {
         return target.findAll();
+    }
+
+    @Override
+    public Set<String> listCategories(ApiCriteria apiCriteria) throws TechnicalException {
+        return target.listCategories(apiCriteria);
     }
 }

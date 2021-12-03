@@ -924,6 +924,85 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
     }
 
     @Override
+    public LinkedHashSet<String> findIdsByUser(String userId, ApiQuery apiQuery, boolean portal) {
+        List<ApiCriteria> apiCriteriaList = new ArrayList<>();
+        if (portal) {
+            // for portal, we get all public apis
+            apiCriteriaList.add(queryToCriteria(apiQuery).visibility(PUBLIC).build());
+        }
+
+        // for others, user must be authenticated
+        if (userId != null) {
+            // get user apis
+            final Set<String> userApiIds = membershipService
+                .getMembershipsByMemberAndReference(MembershipMemberType.USER, userId, MembershipReferenceType.API)
+                .stream()
+                .map(MembershipEntity::getReferenceId)
+                .collect(toSet());
+            // add dedicated criteria for user apis
+            apiCriteriaList.add(queryToCriteria(apiQuery).ids(userApiIds).build());
+
+            // get user groups apis
+            final Set<String> groupIds = membershipService
+                .getMembershipsByMemberAndReference(MembershipMemberType.USER, userId, MembershipReferenceType.GROUP)
+                .stream()
+                .filter(
+                    m -> {
+                        final RoleEntity roleInGroup = roleService.findById(m.getRoleId());
+                        if (!portal) {
+                            return (
+                                m.getRoleId() != null &&
+                                roleInGroup.getScope().equals(RoleScope.API) &&
+                                canManageApi(roleInGroup.getPermissions())
+                            );
+                        }
+                        return m.getRoleId() != null && roleInGroup.getScope().equals(RoleScope.API);
+                    }
+                )
+                .map(MembershipEntity::getReferenceId)
+                .collect(toSet());
+
+            // add dedicated criteria for groups apis
+            apiCriteriaList.add(queryToCriteria(apiQuery).groups(groupIds).build());
+
+            // get user subscribed apis, useful when an API becomes private and an app owner is not anymore in members.
+            if (portal) {
+                final Set<String> applications = applicationService
+                    .findByUser(userId)
+                    .stream()
+                    .map(ApplicationListItem::getId)
+                    .collect(toSet());
+                if (!applications.isEmpty()) {
+                    final SubscriptionQuery query = new SubscriptionQuery();
+                    query.setApplications(applications);
+                    final Collection<SubscriptionEntity> subscriptions = subscriptionService.search(query);
+                    if (subscriptions != null && !subscriptions.isEmpty()) {
+                        apiCriteriaList.add(
+                            queryToCriteria(apiQuery)
+                                .ids(subscriptions.stream().map(SubscriptionEntity::getApi).distinct().toArray(String[]::new))
+                                .build()
+                        );
+                    }
+                }
+            }
+        }
+
+        // Just one call to apiRepository to preserve sort
+        List<String> apiIds = apiRepository.searchIds(apiCriteriaList.toArray(new ApiCriteria[apiCriteriaList.size()]));
+        return new LinkedHashSet(apiIds);
+    }
+
+    @Override
+    public Set<String> listCategories(Collection<String> apis) {
+        try {
+            return apiRepository.listCategories(new ApiCriteria.Builder().ids(apis.toArray(new String[apis.size()])).build());
+        } catch (TechnicalException ex) {
+            LOGGER.error("An error occurs while trying to list categories for APIs {}", apis, ex);
+            throw new TechnicalManagementException("An error occurs while trying to list categories for APIs {}" + apis, ex);
+        }
+    }
+
+    @Override
     public Page<ApiEntity> findByUser(String userId, ApiQuery apiQuery, Sortable sortable, Pageable pageable, boolean portal) {
         try {
             LOGGER.debug("Find APIs page by user {}", userId);
@@ -948,18 +1027,6 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
         } catch (TechnicalException ex) {
             LOGGER.error("An error occurs while trying to find APIs for user {}", userId, ex);
             throw new TechnicalManagementException("An error occurs while trying to find APIs for user " + userId, ex);
-        }
-    }
-
-    @Override
-    public List<String> findIdsByUser(String userId, ApiQuery apiQuery, boolean portal) {
-        try {
-            LOGGER.debug("Search API ids by user {} and {}", userId, apiQuery);
-            return findApisByUser(userId, apiQuery, portal).stream().map(Api::getId).collect(toList());
-        } catch (Exception ex) {
-            final String errorMessage = "An error occurs while trying to search for API ids for user " + userId + ": " + apiQuery;
-            LOGGER.error(errorMessage, ex);
-            throw new TechnicalManagementException(errorMessage, ex);
         }
     }
 
@@ -1102,6 +1169,15 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
         }
         apiQuery.setLifecycleStates(singletonList(io.gravitee.rest.api.model.api.ApiLifecycleState.PUBLISHED));
         return findByUser(userId, apiQuery, true);
+    }
+
+    @Override
+    public LinkedHashSet<String> findPublishedIdsByUser(String userId, ApiQuery apiQuery) {
+        if (apiQuery == null) {
+            apiQuery = new ApiQuery();
+        }
+        apiQuery.setLifecycleStates(singletonList(io.gravitee.rest.api.model.api.ApiLifecycleState.PUBLISHED));
+        return findIdsByUser(userId, apiQuery, true);
     }
 
     @Override
@@ -2236,7 +2312,7 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
     public Collection<String> searchIds(ApiQuery query) {
         try {
             LOGGER.debug("Search API ids by {}", query);
-            return apiRepository.search(queryToCriteria(query).build()).stream().map(Api::getId).collect(toList());
+            return apiRepository.searchIds(queryToCriteria(query).build());
         } catch (Exception ex) {
             final String errorMessage = "An error occurs while trying to search for API ids: " + query;
             LOGGER.error(errorMessage, ex);
@@ -2249,11 +2325,13 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
         try {
             LOGGER.debug("Search paged APIs by {}", query);
 
+            // TODO: Why we don't use setPage
             Query<ApiEntity> apiQuery = QueryBuilder.create(ApiEntity.class).setQuery(query).setFilters(filters).build();
 
             SearchResult matchApis = searchEngineService.search(apiQuery);
 
             /*
+             * TODO: why ?
              * Dirty hack to ensure that only APIs viewable by the current user are returned
              */
             Stream<String> apiIdStream = matchApis.getDocuments().stream();
@@ -2268,6 +2346,9 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
             }
 
             final ApiCriteria apiCriteria = new ApiCriteria.Builder().ids(apiIds).build();
+
+            // TODO: why 2 repository calls ??
+            // TODO: Remove useless comparator
             final Page<Api> apiPage = sortAndPaginate(
                 apiRepository.search(apiCriteria),
                 pageable,
@@ -2292,6 +2373,7 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
         SearchResult matchApis = searchEngineService.search(apiQuery);
 
         /*
+         * TODO: why ?
          * Dirty hack to ensure that only APIs viewable by the current user are returned
          */
         Stream<String> apiIdStream = matchApis.getDocuments().stream();
@@ -2577,7 +2659,7 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
             builder.category(categoryService.findById(query.getCategory()).getId());
         }
         if (query.getGroups() != null && !query.getGroups().isEmpty()) {
-            builder.groups(query.getGroups().toArray(new String[0]));
+            builder.groups(query.getGroups());
         }
         if (!isBlank(query.getState())) {
             builder.state(LifecycleState.valueOf(query.getState()));
@@ -2595,7 +2677,7 @@ public class ApiServiceImpl extends AbstractService implements ApiService {
             );
         }
         if (query.getIds() != null && !query.getIds().isEmpty()) {
-            builder.ids(query.getIds().toArray(new String[0]));
+            builder.ids(query.getIds());
         }
 
         if (!isBlank(query.getContextPath())) {

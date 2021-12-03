@@ -15,23 +15,17 @@
  */
 package io.gravitee.rest.api.service.filtering;
 
-import io.gravitee.rest.api.model.api.ApiEntity;
-import io.gravitee.rest.api.model.filtering.FilterableItem;
 import io.gravitee.rest.api.model.filtering.FilteredEntities;
-import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 public interface FilteringService {
-    <T extends FilterableItem> FilteredEntities<T> getEntitiesOrderByNumberOfSubscriptions(
-        Collection<T> items,
-        Boolean excluded,
-        boolean isAsc
-    );
+    FilteredEntities<String> getApisOrderByNumberOfSubscriptions(LinkedHashSet<String> ids, Boolean excluded, boolean isAsc);
 
-    FilteredEntities<ApiEntity> filterApis(
-        final Collection<ApiEntity> apis,
-        final FilterType filterType,
-        final FilterType excludedFilterType
-    );
+    // TODO: force LinkedHashSet to preserve order
+    FilteredEntities<String> getApplicationsOrderByNumberOfSubscriptions(Set<String> ids, Boolean excluded, boolean isAsc);
+
+    FilteredEntities<String> filterApis(final LinkedHashSet<String> apis, final FilterType filterType, final FilterType excludedFilterType);
 
     enum FilterType {
         ALL,

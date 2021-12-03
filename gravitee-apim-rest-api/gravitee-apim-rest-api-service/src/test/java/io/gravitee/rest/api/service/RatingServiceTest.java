@@ -40,7 +40,10 @@ import io.gravitee.rest.api.service.exceptions.RatingAlreadyExistsException;
 import io.gravitee.rest.api.service.exceptions.RatingNotFoundException;
 import io.gravitee.rest.api.service.impl.RatingServiceImpl;
 import io.gravitee.rest.api.service.notification.ApiHook;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
@@ -332,5 +335,15 @@ public class RatingServiceTest {
         assertFalse(ratingSummary.getNumberOfRatingsByRate().isEmpty());
         assertEquals(1, ratingSummary.getNumberOfRatingsByRate().get(new Byte("3")), 0);
         assertEquals(1, ratingSummary.getNumberOfRatingsByRate().get(new Byte("4")), 0);
+    }
+
+    @Test
+    public void mergeSet() {
+        Set<Integer> integers = new LinkedHashSet();
+        integers.addAll(Arrays.asList(1, 2, 3));
+        Set<Integer> append = new LinkedHashSet();
+        append.addAll(Arrays.asList(1, 5, 6));
+        integers.addAll(append);
+        assertEquals(integers, Set.of(1, 2, 3, 5, 6));
     }
 }

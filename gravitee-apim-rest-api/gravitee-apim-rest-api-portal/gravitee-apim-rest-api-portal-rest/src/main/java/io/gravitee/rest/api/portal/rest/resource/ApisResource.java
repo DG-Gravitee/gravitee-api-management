@@ -22,6 +22,7 @@ import io.gravitee.rest.api.model.api.ApiQuery;
 import io.gravitee.rest.api.model.filtering.FilteredEntities;
 import io.gravitee.rest.api.portal.rest.mapper.ApiMapper;
 import io.gravitee.rest.api.portal.rest.model.Api;
+import io.gravitee.rest.api.portal.rest.model.FilterApiQuery;
 import io.gravitee.rest.api.portal.rest.resource.param.ApisParam;
 import io.gravitee.rest.api.portal.rest.resource.param.PaginationParam;
 import io.gravitee.rest.api.portal.rest.security.RequirePortalAuth;
@@ -58,63 +59,80 @@ public class ApisResource extends AbstractResource {
     private CategoryService categoryService;
 
     @GET
+    @Path("_categories")
+    @Produces(MediaType.APPLICATION_JSON)
+    @RequirePortalAuth
+    public Response listCategories(@BeanParam ApisParam apisParam) {
+        FilteredEntities<String> filteredApis = findAndFilterApi(apisParam);
+        Set<String> categories = apiService.listCategories(filteredApis.getFilteredItems());
+        return Response.ok(new DataResponse().data(categories)).build();
+    }
+
+    private FilteredEntities<String> findAndFilterApi(ApisParam apisParam) {
+        LinkedHashSet<String> apis = apiService.findPublishedIdsByUser(getAuthenticatedUserOrNull(), createQueryFromParam(null));
+        return filteringService.filterApis(apis, convert(apisParam.getFilter()), convert(apisParam.getExcludedFilter()));
+    }
+
+    private FilteringService.FilterType convert(FilterApiQuery filter) {
+        return filter != null ? FilteringService.FilterType.valueOf(filter.name()) : null;
+    }
+
+    @GET
     @Produces(MediaType.APPLICATION_JSON)
     @RequirePortalAuth
     public Response getApis(@BeanParam PaginationParam paginationParam, @BeanParam ApisParam apisParam) {
-        boolean isCategoryMode = (apisParam.getCategory() != null && apisParam.getFilter() == null);
+        boolean isCategoryMode = apisParam.isCategoryMode();
 
         String categoryFilter = apisParam.getCategory();
         if (!isCategoryMode && categoryFilter != null) {
             apisParam.setCategory(null);
         }
 
-        Collection<ApiEntity> apis = apiService.findPublishedByUser(getAuthenticatedUserOrNull(), createQueryFromParam(apisParam));
+        LinkedHashSet<String> apis = apiService.findPublishedIdsByUser(getAuthenticatedUserOrNull(), createQueryFromParam(null));
 
-        FilteringService.FilterType filter = apisParam.getFilter() != null
-            ? FilteringService.FilterType.valueOf(apisParam.getFilter().name())
-            : null;
-        FilteringService.FilterType excludeFilter = apisParam.getExcludedFilter() != null
-            ? FilteringService.FilterType.valueOf(apisParam.getExcludedFilter().name())
-            : null;
+        FilteredEntities<String> filteredApis = filteringService.filterApis(
+            apis,
+            convert(apisParam.getFilter()),
+            convert(apisParam.getExcludedFilter())
+        );
+        Collection<String> filteredApisList = filteredApis.getFilteredItems();
 
-        FilteredEntities<ApiEntity> filteredApis = filteringService.filterApis(apis, filter, excludeFilter);
-        List<ApiEntity> filteredApisList = filteredApis.getFilteredItems();
-
-        Stream<ApiEntity> resultStream = filteredApisList.stream();
+        Stream<String> resultStream = filteredApisList.stream();
 
         if (filteredApisList.size() > 0 && apisParam.getPromoted() != null) {
             //By default, the promoted API is the first of the list;
-            String promotedApiId = filteredApisList.get(0).getId();
+            String promotedApiId = filteredApisList.iterator().next();
 
             if (isCategoryMode) {
                 // If apis are searched in a category, looks for the category highlighted API (HL API) and if this HL API is in the searchResult.
                 // If it is, then the HL API becomes the promoted API
                 String highlightedApiId = this.categoryService.findById(categoryFilter).getHighlightApi();
                 if (highlightedApiId != null) {
-                    Optional<ApiEntity> highlightedApiInResult = filteredApisList
+                    Optional<String> highlightedApiInResult = filteredApisList
                         .stream()
-                        .filter(api -> api.getId().equals(highlightedApiId))
+                        .filter(api -> api.equals(highlightedApiId))
                         .findFirst();
                     if (highlightedApiInResult.isPresent()) {
-                        promotedApiId = highlightedApiInResult.get().getId();
+                        promotedApiId = highlightedApiInResult.get();
                     }
                 }
             }
             String finalPromotedApiId = promotedApiId;
             if (apisParam.getPromoted() == Boolean.TRUE) {
                 // Only the promoted API has to be returned
-                resultStream = resultStream.filter(api -> api.getId().equals(finalPromotedApiId));
+                resultStream = resultStream.filter(api -> api.equals(finalPromotedApiId));
             } else if (apisParam.getPromoted() == Boolean.FALSE) {
                 // All filtered API except the promoted API have to be returned
                 if (!isCategoryMode && categoryFilter != null) {
-                    resultStream = resultStream.filter(api -> api.getCategories() != null && api.getCategories().contains(categoryFilter));
+                    // TODO: Manage this case...
+                    //  resultStream = resultStream.filter(api -> api.getCategories() != null && api.getCategories().contains(categoryFilter));
                 }
-                resultStream = resultStream.filter(api -> !api.getId().equals(finalPromotedApiId));
+                resultStream = resultStream.filter(api -> !api.equals(finalPromotedApiId));
             }
         }
 
-        List<Api> apisList = resultStream.map(apiMapper::convert).map(this::addApiLinks).collect(Collectors.toList());
-
+        //        List<Api> apisList = resultStream.map(apiMapper::convert).map(this::addApiLinks).collect(Collectors.toList());
+        List<String> apisList = resultStream.collect(Collectors.toList());
         return createListResponse(apisList, paginationParam, filteredApis.getMetadata());
     }
 
@@ -126,22 +144,39 @@ public class ApisResource extends AbstractResource {
         @NotNull(message = "Input must not be null.") @QueryParam("q") String query,
         @BeanParam PaginationParam paginationParam
     ) {
-        Collection<ApiEntity> apis = apiService.findPublishedByUser(getAuthenticatedUserOrNull(), createQueryFromParam(null));
+        LinkedHashSet<String> apis = apiService.findPublishedIdsByUser(getAuthenticatedUserOrNull(), createQueryFromParam(null));
 
         Map<String, Object> filters = new HashMap<>();
-        filters.put("api", apis.stream().map(ApiEntity::getId).collect(Collectors.toSet()));
+        filters.put("api", apis);
 
         try {
-            List<Api> apisList = apiService
-                .search(query, filters)
-                .stream()
-                .map(apiMapper::convert)
-                .map(this::addApiLinks)
-                .collect(Collectors.toList());
-            return createListResponse(apisList, paginationParam);
+            Collection<ApiEntity> apisList = apiService.search(query, filters);
+            return createListResponse(new ArrayList(apisList), paginationParam);
         } catch (TechnicalException e) {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(e).build();
         }
+    }
+
+    @Override
+    protected List populatePage(List paginatedList) {
+        return (List) paginatedList
+            .stream()
+            .map(
+                o -> {
+                    Api api = null;
+                    if (!(o instanceof Api)) {
+                        if (o instanceof String) {
+                            api = apiMapper.convert(apiService.findById((String) o));
+                        } else if (o instanceof ApiEntity) {
+                            api = apiMapper.convert((ApiEntity) o);
+                        }
+                    } else {
+                        api = (Api) o;
+                    }
+                    return addApiLinks(api);
+                }
+            )
+            .collect(Collectors.toList());
     }
 
     private ApiQuery createQueryFromParam(ApisParam apisParam) {
