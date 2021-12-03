@@ -31,7 +31,7 @@ import java.util.Objects;
 public class ApiCriteria {
 
     private Collection<String> ids;
-    private List<String> groups;
+    private Collection<String> groups;
     private String category;
     private String label;
     private LifecycleState state;
@@ -62,7 +62,7 @@ public class ApiCriteria {
         return ids;
     }
 
-    public List<String> getGroups() {
+    public Collection<String> getGroups() {
         return groups;
     }
 
@@ -148,7 +148,7 @@ public class ApiCriteria {
     public static class Builder {
 
         private Collection<String> ids;
-        private List<String> groups;
+        private Collection<String> groups;
         private String category;
         private String label;
         private LifecycleState state;
@@ -172,6 +172,11 @@ public class ApiCriteria {
 
         public ApiCriteria.Builder groups(final String... group) {
             this.groups = asList(group);
+            return this;
+        }
+
+        public ApiCriteria.Builder groups(final Collection<String> groups) {
+            this.groups = groups;
             return this;
         }
 
