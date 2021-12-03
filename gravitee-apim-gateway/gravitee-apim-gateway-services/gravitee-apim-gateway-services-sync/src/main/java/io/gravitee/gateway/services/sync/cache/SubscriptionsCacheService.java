@@ -29,6 +29,7 @@ import io.gravitee.gateway.services.sync.cache.repository.SubscriptionRepository
 import io.gravitee.gateway.services.sync.cache.task.FullSubscriptionRefresher;
 import io.gravitee.gateway.services.sync.cache.task.IncrementalSubscriptionRefresher;
 import io.gravitee.gateway.services.sync.cache.task.Result;
+import io.gravitee.node.api.cache.CacheManager;
 import io.gravitee.node.api.cluster.ClusterManager;
 import io.gravitee.repository.management.api.SubscriptionRepository;
 import io.vertx.ext.web.Router;

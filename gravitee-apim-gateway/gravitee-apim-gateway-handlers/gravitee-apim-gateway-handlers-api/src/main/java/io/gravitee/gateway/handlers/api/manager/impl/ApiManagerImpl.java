@@ -17,11 +17,6 @@ package io.gravitee.gateway.handlers.api.manager.impl;
 
 import static io.gravitee.gateway.handlers.api.definition.DefinitionContext.planRequired;
 
-import com.hazelcast.core.EntryEvent;
-import com.hazelcast.core.EntryEventType;
-import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.map.IMap;
-import com.hazelcast.map.impl.MapListenerAdapter;
 import io.gravitee.common.event.EventManager;
 import io.gravitee.common.util.DataEncryptor;
 import io.gravitee.definition.model.Plan;
@@ -31,6 +26,7 @@ import io.gravitee.gateway.env.GatewayConfiguration;
 import io.gravitee.gateway.handlers.api.definition.Api;
 import io.gravitee.gateway.handlers.api.manager.ApiManager;
 import io.gravitee.gateway.reactor.ReactorEvent;
+import io.gravitee.node.api.cache.*;
 import io.gravitee.node.api.cluster.ClusterManager;
 import java.security.GeneralSecurityException;
 import java.util.Collection;
@@ -49,7 +45,7 @@ import org.springframework.beans.factory.annotation.Autowired;
  * @author David BRASSELY (david.brassely at graviteesource.com)
  * @author GraviteeSource Team
  */
-public class ApiManagerImpl extends MapListenerAdapter<String, Api> implements ApiManager, InitializingBean {
+public class ApiManagerImpl implements ApiManager, InitializingBean, CacheListener<String, Api> {
 
     private final Logger logger = LoggerFactory.getLogger(ApiManagerImpl.class);
     private static final int PARALLELISM = Runtime.getRuntime().availableProcessors() * 2;
@@ -61,24 +57,24 @@ public class ApiManagerImpl extends MapListenerAdapter<String, Api> implements A
     private GatewayConfiguration gatewayConfiguration;
 
     @Autowired
-    private HazelcastInstance hzInstance;
+    private ClusterManager clusterManager;
 
     @Autowired
-    private ClusterManager clusterManager;
+    private CacheManager cacheManager;
 
     @Autowired
     private DataEncryptor dataEncryptor;
 
-    private Map<String, Api> apis;
+    private Cache<String, Api> apis;
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        apis = hzInstance.getMap("apis");
-        ((IMap) apis).addEntryListener(this, true);
+        apis = cacheManager.getCache("apis");
+        apis.addCacheListener(this);
     }
 
     @Override
-    public void onEntryEvent(EntryEvent<String, Api> event) {
+    public void onEvent(EntryEvent<String, Api> event) {
         // Replication is only done for secondary nodes
         if (!clusterManager.isMasterNode()) {
             if (event.getEventType() == EntryEventType.ADDED) {
@@ -154,6 +150,7 @@ public class ApiManagerImpl extends MapListenerAdapter<String, Api> implements A
             final ExecutorService refreshAllExecutor = createExecutor(Math.min(PARALLELISM, apis.size()));
 
             final List<Callable<Boolean>> toInvoke = apis
+                .getNativeCache()
                 .values()
                 .stream()
                 .map(api -> ((Callable<Boolean>) () -> register(api, true)))
@@ -260,7 +257,7 @@ public class ApiManagerImpl extends MapListenerAdapter<String, Api> implements A
     }
 
     private void undeploy(String apiId) {
-        Api currentApi = apis.remove(apiId);
+        Api currentApi = apis.evict(apiId);
         if (currentApi != null) {
             MDC.put("api", apiId);
             logger.debug("Undeployment of {}", currentApi);
@@ -289,7 +286,7 @@ public class ApiManagerImpl extends MapListenerAdapter<String, Api> implements A
 
     @Override
     public Collection<Api> apis() {
-        return apis.values();
+        return apis.getNativeCache().values();
     }
 
     @Override
@@ -301,7 +298,7 @@ public class ApiManagerImpl extends MapListenerAdapter<String, Api> implements A
         this.eventManager = eventManager;
     }
 
-    public void setApis(Map<String, Api> apis) {
+    public void setApis(Cache<String, Api> apis) {
         this.apis = apis;
     }
 }

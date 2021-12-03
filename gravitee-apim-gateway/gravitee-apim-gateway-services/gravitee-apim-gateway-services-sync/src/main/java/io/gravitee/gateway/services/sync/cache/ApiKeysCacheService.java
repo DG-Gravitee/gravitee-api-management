@@ -29,6 +29,7 @@ import io.gravitee.gateway.services.sync.cache.repository.ApiKeyRepositoryWrappe
 import io.gravitee.gateway.services.sync.cache.task.FullApiKeyRefresher;
 import io.gravitee.gateway.services.sync.cache.task.IncrementalApiKeyRefresher;
 import io.gravitee.gateway.services.sync.cache.task.Result;
+import io.gravitee.node.api.cache.CacheManager;
 import io.gravitee.node.api.cluster.ClusterManager;
 import io.gravitee.repository.management.api.ApiKeyRepository;
 import io.vertx.ext.web.Router;
